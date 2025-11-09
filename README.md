@@ -1,7 +1,3 @@
-好的，這是一個為您的 `laravel-ecommerce-demo` 專案準備的 `README.md` 文件，重點強調了主從分離的實現，並包含了您提到的所有關鍵點。
-
----
-
 # laravel-ecommerce-demo
 
 ![Laravel Ecommerce Demo](https://via.placeholder.com/1200x400.png?text=Laravel+Ecommerce+Demo)
@@ -100,7 +96,7 @@
 
 1.  **克隆專案:**
     ```bash
-    git clone https://github.com/your-username/laravel-ecommerce-demo.git
+    git clone https://github.com/BpsEason/laravel-ecommerce-demo.git
     cd laravel-ecommerce-demo
     ```
 
