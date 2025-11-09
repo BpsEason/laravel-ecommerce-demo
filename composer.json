@@ -5,23 +5,23 @@
     "license": "MIT",
     "type": "project",
     "require": {
-        "php": "^8.3",                       // 更新為 PHP 8.3 以符合 Dockerfile
+        "php": "^8.3",
         "guzzlehttp/guzzle": "^7.2",
-        "laravel/framework": "^11.0",        // 更新為 Laravel 11
-        "laravel/sanctum": "^4.0",           // 更新為 Laravel Sanctum 4.x for L11
-        "laravel/tinker": "^2.9",            // 更新為 Laravel Tinker 2.9 for L11
-        "predis/predis": "^2.0",             // For Redis cache and queue
-        "stripe/stripe-php": "^14.0",        // **新增: Stripe 金流服務**
-        "league/flysystem-aws-s3-v3": "^3.0" // **新增: AWS S3 檔案儲存與 CDN 整合**
+        "laravel/framework": "^11.0",
+        "laravel/sanctum": "^4.0",
+        "laravel/tinker": "^2.9",
+        "predis/predis": "^2.0",
+        "stripe/stripe-php": "^14.0",
+        "league/flysystem-aws-s3-v3": "^3.0"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.23.0",         // 更新版本
-        "laravel/pint": "^1.11",             // 更新版本
-        "laravel/sail": "^1.29",             // 更新版本
-        "mockery/mockery": "^1.6.9",         // 更新版本
-        "nunomaduro/collision": "^8.1",      // 更新版本
-        "phpunit/phpunit": "^11.0",          // 更新版本
-        "spatie/laravel-ignition": "^2.4"    // 更新版本
+        "fakerphp/faker": "^1.23.0",         
+        "laravel/pint": "^1.11",             
+        "laravel/sail": "^1.29",             
+        "mockery/mockery": "^1.6.9",         
+        "nunomaduro/collision": "^8.1",      
+        "phpunit/phpunit": "^11.0",          
+        "spatie/laravel-ignition": "^2.4"    
     },
     "autoload": {
         "psr-4": {
