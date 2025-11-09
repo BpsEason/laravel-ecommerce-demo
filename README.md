@@ -1,14 +1,12 @@
 # laravel-ecommerce-demo
 
-![Laravel Ecommerce Demo](https://via.placeholder.com/1200x400.png?text=Laravel+Ecommerce+Demo)
-
 這是一個基於 Laravel 11 的電商應用程式演示專案，採用 Docker Compose 進行容器化部署。它展示了如何實作資料庫主從分離（讀寫分離）以優化應用程式的擴展性和性能，同時利用 Redis 進行緩存、Session 和隊列管理，並通過 CDN 加速靜態資源的交付。
 
 ## 目錄
 
 *   [功能特色](#功能特色)
 *   [技術棧](#技術棧)
-*   [架構概覽](#架構概覽)
+*   [架構概覽](#完整的生產級架構概覽 (含 ALB/ELB))
 *   [快速開始](#快速開始)
     *   [環境要求](#環境要求)
     *   [專案設置](#專案設置)
