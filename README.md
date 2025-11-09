@@ -1,4 +1,3 @@
-
 # laravel-ecommerce-demo
 
 這是一個基於 **Laravel 11** 的電商應用程式演示專案，旨在展示如何構建一個高效能、可擴展的微服務架構電商平台。專案利用 **Docker Compose** 進行容器化部署，並深入探討了 **資料庫主從分離**、**Redis 緩存/Session/隊列** 以及 **CDN 靜態資源加速** 等關鍵技術在 Laravel 中的實作。
@@ -15,7 +14,7 @@
 *   **Redis 高效利用：** 緩存熱點數據、管理 Session、處理非同步隊列任務。
 *   **靜態資源 CDN 加速：** 通過 AWS CloudFront 提升網站加載速度。
 *   **容器化部署：** 透過 Docker Compose 實現環境一致性和快速部署。
-*   **持續整合 (CI)：** 藉由 GitHub Actions 確保代碼品質。
+*   **持續整合 [CI]：** 藉由 GitHub Actions 確保代碼品質。
 *   **高併發處理策略：** 深入探討防止超賣/超買的實現方法。
 
 ## 🛠️ 技術棧
@@ -49,7 +48,7 @@ graph TD
     F -->|讀寫分離邏輯| H[Laravel DB Read/Write Splitter];
 
     H -->|寫入操作| I(AWS RDS MySQL Master - 主資料庫);
-    H -->|讀取操作| J(AWS RDS MySQL Replica(s) - 只讀副本);
+    H -->|讀取操作| J(AWS RDS MySQL ReplicaS - 只讀副本);
 
     I --|非同步複製| J;
 
@@ -62,19 +61,19 @@ graph TD
 **說明：**
 
 1.  **用戶端：** 發起 HTTP(S) 請求，靜態資源會直接由 CloudFront 響應。
-2.  **AWS CloudFront (CDN)：** 加速全球靜態資源（JS, CSS, 圖片）的交付。
-3.  **ALB (應用負載平衡器)：** 將動態請求分發到後端的多個應用伺服器實例。
+2.  **AWS CloudFront [CDN]：** 加速全球靜態資源（JS, CSS, 圖片）的交付。
+3.  **ALB [應用負載平衡器]：** 將動態請求分發到後端的多個應用伺服器實例。
 4.  **Auto Scaling Group：** 根據流量自動增減 EC2 實例數量，每個實例運行 Nginx 和 PHP-FPM。
 5.  **Laravel 應用程式：** 處理業務邏輯，並與 Redis 和資料庫進行互動。
-6.  **AWS ElastiCache (Redis)：** 提供高可用的緩存、Session 儲存和隊列服務。
+6.  **AWS ElastiCache [Redis]：** 提供高可用的緩存、Session 儲存和隊列服務。
 7.  **Laravel Read/Write Splitter：** 根據請求類型，自動將讀取操作導向只讀副本，寫入操作導向主資料庫。
 8.  **AWS RDS MySQL Master：** 處理所有寫入操作。
-9.  **AWS RDS MySQL Replica(s)：** 處理大部分讀取操作，通過異步複製與 Master 保持數據同步。
+9.  **AWS RDS MySQL ReplicaS：** 處理大部分讀取操作，通過異步複製與 Master 保持數據同步。
 10. **Laravel Queue Workers：** 非同步處理 Redis 隊列中的任務，如訂單創建、郵件發送等。
 
 ---
 
-## ⚡ 高流量交易請求流程圖 (含超賣/超買防範)
+## ⚡ 高流量交易請求流程圖 [含超賣/超買防範]
 
 此流程圖詳細展示了在高流量場景下，一個交易請求如何被處理，並特別強調了防止超賣/超買的關鍵策略。
 ```mermaid
@@ -85,23 +84,23 @@ graph TD
 
     D --> E[2. ALB 分發請求到 Auto Scaling Group];
     E --> F[Nginx 實例];
-    F --> G[PHP-FPM 進程 (執行 Laravel App)];
+    F --> G[PHP-FPM 進程 - 執行 Laravel App];
 
     G --> H{3. Laravel 應用程式邏輯處理};
     H -- 緩存/Session 讀寫 --> I(AWS ElastiCache - Redis Cluster);
 
-    H -- 高流量交易操作 (e.g., 提交訂單、秒殺) --> J[**Redis 預扣庫存 (原子性)**];
+    H -- 高流量交易操作 - e.g., 提交訂單、秒殺 --> J[**Redis 預扣庫存 - 原子性**];
     J -- 庫存不足 --> K(回響: 商品已售罄，或重試);
     J -- 庫存足夠 --> L[**將訂單處理推入 Redis 隊列**];
     L --> M(快速響應用戶: 訂單已提交，正在處理);
 
     M --> N[4. 後台 Worker 服務處理隊列任務];
     N --> O(Worker 從 Redis 隊列中取出任務);
-    O --> P[Worker 非同步執行交易業務邏輯 (含重試機制)];
+    O --> P[Worker 非同步執行交易業務邏輯 - 含重試機制];
 
     P --> Q{執行數據庫操作};
     Q -- 數據寫入 --> R(AWS RDS MySQL Master Database);
-    Q -- 數據讀取 --> S(AWS RDS MySQL Read Replica Database(s));
+    Q -- 數據讀取 --> S(AWS RDS MySQL Read Replica DatabaseS);
 
     R -- 異步複製 --> S;
 
@@ -114,7 +113,7 @@ graph TD
 
 在高流量交易系統中，防止超賣或超買是至關重要的。我們通常會採用以下綜合策略：
 
-1.  **Redis 預扣庫存 (原子性操作)：**
+1.  **Redis 預扣庫存 [原子性操作]：**
     *   在用戶下單時，首先在 Redis 中進行原子性的庫存扣減 (`DECRBY` 命令)。Redis 的單線程特性確保了這個操作的原子性。
     *   如果 Redis 庫存不足，則立即拒絕請求，實現流量削峰。
     *   這能以極快的速度響應大量請求，保護後端資料庫。
@@ -122,9 +121,9 @@ graph TD
     *   Redis 預扣成功後，將實際的訂單創建任務推入 Laravel 隊列。
     *   Web 服務器可以立即響應用戶「訂單已提交，正在處理中」，提升用戶體驗。
     *   後台的 Queue Worker 非同步地從隊列中取出任務並進行處理。
-3.  **MySQL 庫存最終扣減 (雙重保險)：**
+3.  **MySQL 庫存最終扣減 [雙重保險]：**
     *   在 Worker 處理任務時，執行實際的 MySQL 庫存扣減和訂單創建。
-    *   此時可以再次使用 **樂觀鎖 (Optimistic Locking)** 或 **悲觀鎖 (Pessimistic Locking)** 作為雙重檢查，確保在最終寫入資料庫時沒有超賣情況發生。
+    *   此時可以再次使用 **樂觀鎖 [Optimistic Locking]** 或 **悲觀鎖 [Pessimistic Locking]** 作為雙重檢查，確保在最終寫入資料庫時沒有超賣情況發生。
     *   若 Worker 處理失敗，應有回滾機制，如將 Redis 預扣的庫存加回，或將任務重試。
 
 ---
@@ -162,7 +161,7 @@ graph TD
     ```
     這將啟動 `app` (PHP-FPM), `nginx`, `db` (MySQL), `redis` 和 `worker` (Laravel Queue Worker) 服務。
 
-2.  **執行資料庫遷移和填充 (Seeding):**
+2.  **執行資料庫遷移和填充 [Seeding]:**
     ```bash
     docker compose run --rm artisan migrate --seed
     ```
@@ -180,7 +179,7 @@ graph TD
 
 ---
 
-## 🔄 主從分離 (Read/Write Splitting) 配置
+## 🔄 主從分離 [Read/Write Splitting] 配置
 
 資料庫主從分離是提升資料庫吞吐量和可用性的關鍵策略。
 
@@ -188,7 +187,7 @@ graph TD
 
 在 AWS RDS 環境中，可以輕鬆設定 Master 資料庫和一個或多個 Read Replica。你需要為每個實例獲取各自的端點 (Endpoint)。
 
-### Laravel 配置 (`config/database.php`)
+### Laravel 配置 [`config/database.php`]
 
 Laravel 內建支援資料庫讀寫分離，我們將在 `config/database.php` 中配置 `mysql` 連接。
 
@@ -221,7 +220,7 @@ Laravel 內建支援資料庫讀寫分離，我們將在 `config/database.php` �
 ],
 ```
 
-**`.env` 配置示例 (本地 Docker Compose 環境):**
+**`.env` 配置示例 [本地 Docker Compose 環境]:**
 
 ```dotenv
 # ... 其他配置
@@ -267,13 +266,13 @@ SESSION_DRIVER=redis
 QUEUE_CONNECTION=redis
 ```
 
-*   **緩存 (Cache):** 減少對資料庫的頻繁查詢，加速響應。
+*   **緩存 [Cache]:** 減少對資料庫的頻繁查詢，加速響應。
 *   **Session:** 將 Session 儲存在 Redis 中，便於多實例共享和水平擴展。
-*   **隊列 (Queue):** 處理耗時的背景任務，避免阻塞 Web 請求。`worker` 服務會持續消費這些任務。
+*   **隊列 [Queue]:** 處理耗時的背景任務，避免阻塞 Web 請求。`worker` 服務會持續消費這些任務。
 
 ---
 
-## 🖼️ 靜態資源 CDN (AWS CloudFront)
+## 🖼️ 靜態資源 CDN [AWS CloudFront]
 
 為提升網站加載速度和用戶體驗，建議將靜態資源 (CSS, JavaScript, 圖片) 部署到 CDN。
 
@@ -282,7 +281,7 @@ QUEUE_CONNECTION=redis
 1.  **S3 Bucket:** 創建一個 S3 Bucket 存放靜態資源。
 2.  **上傳資源:** 將 `public` 目錄下的靜態文件同步到 S3。
 3.  **CloudFront Distribution:** 創建一個 CloudFront 分發，將其源 (Origin) 指向你的 S3 Bucket。配置緩存行為和協議策略 (建議 `Redirect HTTP to HTTPS`)。
-4.  **Laravel `config/app.php`:**
+4.  **Laravel [`config/app.php`]：**
     設定 `asset_url` 為你的 CloudFront 域名。
 
     ```php
@@ -305,9 +304,9 @@ QUEUE_CONNECTION=redis
 
 本專案使用 Docker Compose 管理以下核心服務：
 
-*   **`app` (PHP-FPM):** Laravel 應用程式的 PHP-FPM 進程。
+*   **`app` [PHP-FPM]:** Laravel 應用程式的 PHP-FPM 進程。
 *   **`nginx`:** 作為反向代理，轉發 Web 請求並處理靜態資源。
-*   **`db` (MySQL):** 資料庫服務，在本地環境中模擬主資料庫和讀寫分離。
+*   **`db` [MySQL]:** 資料庫服務，在本地環境中模擬主資料庫和讀寫分離。
 *   **`redis`:** 緩存、Session 和隊列服務。
 *   **`worker`:** Laravel Queue Worker，專門處理背景任務。
 
