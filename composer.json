@@ -1,0 +1,69 @@
+{
+    "name": "laravel/laravel",
+    "description": "A Laravel E-commerce demo application with Read/Write Splitting and Performance Optimizations.",
+    "keywords": ["laravel", "framework", "ecommerce", "read-write-splitting", "performance", "redis", "queue", "aws", "s3", "cdn", "cloudfront"],
+    "license": "MIT",
+    "type": "project",
+    "require": {
+        "php": "^8.3",                       // 更新為 PHP 8.3 以符合 Dockerfile
+        "guzzlehttp/guzzle": "^7.2",
+        "laravel/framework": "^11.0",        // 更新為 Laravel 11
+        "laravel/sanctum": "^4.0",           // 更新為 Laravel Sanctum 4.x for L11
+        "laravel/tinker": "^2.9",            // 更新為 Laravel Tinker 2.9 for L11
+        "predis/predis": "^2.0",             // For Redis cache and queue
+        "stripe/stripe-php": "^14.0",        // **新增: Stripe 金流服務**
+        "league/flysystem-aws-s3-v3": "^3.0" // **新增: AWS S3 檔案儲存與 CDN 整合**
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23.0",         // 更新版本
+        "laravel/pint": "^1.11",             // 更新版本
+        "laravel/sail": "^1.29",             // 更新版本
+        "mockery/mockery": "^1.6.9",         // 更新版本
+        "nunomaduro/collision": "^8.1",      // 更新版本
+        "phpunit/phpunit": "^11.0",          // 更新版本
+        "spatie/laravel-ignition": "^2.4"    // 更新版本
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

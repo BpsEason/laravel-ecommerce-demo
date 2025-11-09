@@ -1,0 +1,187 @@
+version: '3.8'
+
+services:
+    # PHP-FPM 服務 (處理 Laravel 應用邏輯)
+    app:
+        build:
+            context: . # Dockerfile 所在的上下文路徑
+            dockerfile: Dockerfile # 指定 Dockerfile 名稱
+            args:
+                # 這裡的 PUID 和 PGID 應該與你的主機用戶 ID 和群組 ID 匹配
+                # 在 Linux/macOS 上，你可以使用 `id -u` 和 `id -g` 查看
+                # 這對於解決掛載卷的權限問題非常重要。
+                PUID: 1000
+                PGID: 1000
+        # container_name: laravel_app # 在開發環境可指定，生產環境可考慮動態命名
+        restart: unless-stopped
+        volumes:
+            # 開發環境下，將整個應用程式代碼從主機掛載到容器的 /var/www/html
+            # 這允許你在主機上修改代碼，容器中立即生效
+            - .:/var/www/html:delegated # delegated 模式可以稍微提高文件同步性能
+            # 如果你有自定義的 php.ini 配置，可以這樣掛載
+            # - ./docker/php/php.ini:/usr/local/etc/php/php.ini
+        # 建議使用 entrypoint.sh 腳本來處理啟動邏輯，更靈活
+        # 參考下面的 entrypoint.sh 內容
+        entrypoint: ["/var/www/html/entrypoint.sh"] # 指向你的自定義啟動腳本
+        environment:
+            # Laravel 的基本環境設定
+            APP_ENV: local
+            APP_DEBUG: 'true'
+            APP_KEY: base64:your_app_key_here # <<< 請務必替換為你實際的 APP_KEY (可用 `php artisan key:generate --show` 生成)
+            APP_URL: http://localhost
+            LOG_CHANNEL: stderr # 建議將日誌輸出到 stderr，方便 Docker logs 收集
+
+            # 資料庫連接設定
+            DB_CONNECTION: mysql # 或 pgsql
+            DB_HOST: db
+            DB_PORT: 3306 # 或 5432 for PostgreSQL
+            DB_DATABASE: laravel
+            DB_USERNAME: laravel_user
+            DB_PASSWORD: password
+
+            # Redis 連接設定
+            REDIS_HOST: redis
+            REDIS_PASSWORD: null # 如果 Redis 沒有密碼，設為 null 或空字串
+            REDIS_PORT: 6379
+
+            # 如果需要使用其他服務 (如 Mailhog, S3 等)，在這裡添加環境變數
+            # MAIL_MAILER: smtp
+            # MAIL_HOST: mailhog
+            # MAIL_PORT: 1025
+            # ...
+        depends_on:
+            - db
+            - redis
+        networks:
+            - app-network
+
+    # Nginx 服務 (Web 伺服器，負責處理 HTTP 請求並轉發給 PHP-FPM)
+    nginx:
+        image: nginx:alpine # 輕量級 Nginx 映像
+        # container_name: laravel_nginx # 在開發環境可指定
+        restart: unless-stopped
+        ports:
+            # 將主機的 80 埠映射到容器的 80 埠
+            - "80:80"
+            # 如果你有 HTTPS，可以映射 443 (記得在 Nginx 配置中啟用 SSL)
+            # - "443:443"
+        volumes:
+            # 掛載 Nginx 配置檔案
+            - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro # 只讀模式
+            # 掛載應用程式代碼的 public 目錄，Nginx 只需訪問靜態文件
+            - .:/var/www/html:delegated # Nginx 需要訪問整個應用程式目錄來找到 public
+        depends_on:
+            - app # Nginx 依賴於 app 服務啟動
+        networks:
+            - app-network
+
+    # 資料庫服務 (MySQL 為例)
+    db:
+        image: mysql:8.0 # 或者 postgres:13-alpine (PostgreSQL)
+        # container_name: laravel_db # 在開發環境可指定
+        restart: unless-stopped
+        environment:
+            MYSQL_DATABASE: laravel
+            MYSQL_USER: laravel_user
+            MYSQL_PASSWORD: password # <<< 請務必替換為強密碼
+            MYSQL_ROOT_PASSWORD: root_password # <<< 請務必替換為強密碼，不要與普通用戶密碼相同
+            # 如果使用 PostgreSQL:
+            # POSTGRES_DB: laravel
+            # POSTGRES_USER: laravel_user
+            # POSTGRES_PASSWORD: password
+        volumes:
+            # 將資料庫資料持久化到主機，避免容器刪除後資料丟失
+            - dbdata:/var/lib/mysql # 或者 postgres_data:/var/lib/postgresql/data
+        ports:
+            # 可選：在開發環境中，將資料庫埠映射到主機，方便外部連接 (如 Navicat, DataGrip)
+            - "3306:3306" # 或者 5432:5432
+        networks:
+            - app-network
+
+    # Redis 服務 (緩存、Session、隊列等)
+    redis:
+        image: redis:alpine # 輕量級 Redis 映像
+        # container_name: laravel_redis # 在開發環境可指定
+        restart: unless-stopped
+        # 啟動時啟用 AOF 持久化，確保資料不丟失
+        command: redis-server --appendonly yes
+        volumes:
+            # 將 Redis 資料持久化到主機
+            - redisdata:/data
+        ports:
+            # 可選：在開發環境中，將 Redis 埠映射到主機
+            - "6379:6379"
+        networks:
+            - app-network
+
+    # (可選) Composer 安裝和 Artisan 命令執行服務
+    # 這個服務不會一直運行，只在需要執行 Composer 或 Artisan 命令時使用
+    # 例如：docker compose run --rm composer update
+    composer:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                PUID: 1000
+                PGID: 1000
+        # container_name: laravel_composer
+        volumes:
+            - .:/var/www/html
+        working_dir: /var/www/html
+        entrypoint: ["composer"] # 將容器的默認命令設定為 composer
+        networks:
+            - app-network
+
+    # (可選) Laravel Artisan 命令執行服務
+    # 例如：docker compose run --rm artisan migrate
+    artisan:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                PUID: 1000
+                PGID: 1000
+        # container_name: laravel_artisan
+        volumes:
+            - .:/var/www/html
+        working_dir: /var/www/html
+        entrypoint: ["php", "/var/www/html/artisan"] # 將容器的默認命令設定為 php artisan
+        environment: *app_environment # 引用 app 服務的環境變數
+        depends_on:
+            - db
+            - redis
+        networks:
+            - app-network
+
+    # (可選) Laravel Queue Worker 服務
+    # 如果你的應用程式使用隊列，可以為其創建單獨的服務
+    queue:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                PUID: 1000
+                PGID: 1000
+        # container_name: laravel_queue_worker
+        restart: unless-stopped
+        volumes:
+            - .:/var/www/html
+        working_dir: /var/www/html
+        command: php artisan queue:work --verbose --tries=3 --timeout=90 # 根據你的需求調整
+        environment: *app_environment # 引用 app 服務的環境變數
+        depends_on:
+            - db
+            - redis
+        networks:
+            - app-network
+
+# 外部卷，用於資料持久化
+volumes:
+    dbdata:
+    # postgres_data: # 如果使用 PostgreSQL，請取消註釋
+    redisdata:
+
+# 自定義網路，讓所有服務在同一個網路中互相通信
+networks:
+    app-network:
+        driver: bridge
