@@ -1,6 +1,135 @@
 # laravel-ecommerce-demo
 
-這是一個基於 Laravel 11 的電商應用程式演示專案，採用 Docker Compose 進行容器化部署。它著重展示如何實作資料庫主從分離（讀寫分離）以優化應用程式的擴展性和性能，同時利用 Redis 進行緩存、Session 和隊列管理，並通過 CDN 加速靜態資源的交付。
+這是一個基於 Laravel 11 的電商應用程式演示專案，採用 Docker Compose 進行容器化部署。此專案深入探討了如何構建一個高性能、可擴展且具備高可用性的電商後端系統，特別著重於解決高流量場景下常見的挑戰。
+
+**核心演示點包括：**
+
+1.  **資料庫主從分離（讀寫分離）的實作與應用：** 詳細展示如何配置 Laravel 框架以自動路由讀寫請求至不同的資料庫實例，有效分擔主資料庫的壓力，提升整體資料庫吞吐量。
+2.  **利用 Redis 優化應用程式性能：** 涵蓋 Redis 在緩存熱點數據、管理用戶 Session 以實現應用程式水平擴展、以及作為消息隊列處理耗時背景任務方面的應用。
+3.  **靜態資源 CDN 加速：** 通過集成 CDN 服務，優化靜態資源的交付，顯著提升網站加載速度和用戶體驗。
+4.  **解決高流量電商問題的策略：** 結合上述技術棧，探討在高併發環境中，如防止商品超賣、流量削峰、保障數據最終一致性等關鍵業務問題的解決方案。
+
+透過本專案，開發者可以了解如何將這些先進的架構模式與 Laravel 生態系統緊密結合，構建出強大而穩健的電商解決方案。
+
+---
+
+## 目錄
+
+*   [功能特色](#功能特色)
+*   [技術棧](#技術棧)
+*   [完整的生產級架構概覽](#完整的生產級架構概覽)
+*   [高流量交易的請求流程圖](#高流量交易的請求流程圖)
+*   [**核心問題解決方案：高流量電商挑戰**](#核心問題解決方案高流量電商挑戰)
+    *   [如何利用讀寫分離解決高流量問題](#如何利用讀寫分離解決高流量問題)
+    *   [防止超賣/超買的關鍵策略](#防止超賣/超買的關鍵策略)
+    *   [綜合解決方案：MySQL 主從複製 + Redis + Docker](#綜合解決方案mysql-主從複製--redis--docker)
+*   [快速開始](#快速開始)
+    *   [環境要求](#環境要求)
+    *   [專案設置](#專案設置)
+    *   [本地服務啟動](#本地服務啟動)
+    *   [Postman Collection](#postman-collection)
+*   [主從分離 (Read/Write Splitting) 配置](#主從分離-read/write-splitting-配置)
+    *   [AWS RDS 與 Read Replica 考量](#aws-rds-與-read-replica-考量)
+    *   [Laravel 配置 (`config/database.php`)](#laravel-配置-configdatabasephp)
+    *   [Sticky Connections](#sticky-connections)
+*   [Redis 配置](#redis-配置)
+*   [靜態資源 CDN (AWS CloudFront)](#靜態資源-cdn-aws-cloudfront)
+*   [Docker Compose 服務](#docker-compose-服務)
+*   [GitHub Actions CI](#github-actions-ci)
+*   [本地測試指令](#本地測試指令)
+*   [未來改進](#未來改進)
+*   [貢獻](#貢獻)
+*   [許可證](#許可證)
+
+## 功能特色
+
+*   用戶認證與授權 (基於 Laravel Breeze 或 Sanctum)
+*   產品列表與詳情頁
+*   購物車功能
+*   訂單管理
+*   **資料庫主從分離（讀寫分離）實作：** 有效分散資料庫讀取壓力，提高系統吞吐量。
+*   **利用 Redis 進行緩存、Session 和隊列管理：** 全面優化讀寫性能，實現高併發處理與異步任務管理。
+*   靜態資源 CDN 加速：提升前端加載速度和用戶體驗。
+*   容器化部署 (Docker Compose)：簡化開發、測試與生產環境的一致性與部署流程。
+*   持續整合 (GitHub Actions CI)：保障代碼質量與專案穩定性。
+
+## 技術棧
+
+*   **後端框架:** Laravel 11 (PHP 8.3)
+*   **資料庫:** MySQL 8.0 (支援主從分離，可與 AWS RDS 無縫對接)
+*   **緩存/Session/隊列:** Redis 7 (可選集成 Laravel Horizon)
+*   **Web 伺服器:** Nginx
+*   **容器化:** Docker Compose
+*   **前端:** HTML, CSS, JavaScript (待定，可集成 Vue.js/React.js 或 Livewire)
+*   **CI/CD:** GitHub Actions
+
+## 完整的生產級架構概覽
+
+```
++---------------------+           +--------------------------+
+|      Client         |           |   AWS CloudFront (CDN)   |
+|  (瀏覽器/移動設備)    +-----------> (靜態資源: JS, CSS, 圖片) |
++----------+----------+           +--------------------------+
+           |
+           | HTTP(S) 請求 (動態資源)
+           V
++---------------------+
+|         ALB         |
+| (Application Load   |
+|     Balancer)       |
++----------+----------+
+           | HTTP(S) 請求
+           | (負載平衡、自動擴展)
+           V
++---------------------+
+|  Auto Scaling Group |
+| (多個 EC2 實例 /   |
+|   Nginx + PHP-FPM   |
+|    [Laravel App])   |
++----------+----------+
+           |
+           | (Laravel 應用邏輯)
+           V
++---------------------+       +---------------------+
+|  Laravel 應用程式   |<----->|   AWS ElastiCache   |
+| (處理請求, Push/Pop |       |    (Redis Cluster)  |
+|      Queue)         |       | (Cache, Session, Queue)|
++----------+----------+       +---------------------+
+           |
+           | (資料庫操作)
+           V
++---------------------+
+|  Laravel Read/Write |
+|     Splitter        |
+| (config/database.php)|
++----------+----------+
+   | (寫入 Write)     | (讀取 Read)
+   V                V
++---------------------+  +-------------------------+
+|  AWS RDS MySQL Master |<-- Async Replication --->|  AWS RDS MySQL Replica(s) |
+|      (主資料庫)       |                          |    (只讀副本資料庫)     |
++---------------------+  +-------------------------+
+```
+**架構圖說明：**
+1.  **用戶端 (Client):** 透過瀏覽器或移動設備發起請求。
+2.  **AWS CloudFront (靜態資源 CDN):** 接收並響應靜態資源 (JS, CSS, 圖片) 請求，實現全球加速和緩存。
+3.  **ALB (Application Load Balancer):** AWS 應用負載平衡器，作為所有動態請求的入口。它負責將流量分發到後端的多個應用伺服器實例，並與自動擴展組集成。
+4.  **Auto Scaling Group (自動擴展組):** 根據流量負載自動增減 EC2 實例數量，以應對高流量峰值。每個實例運行 Nginx (Web 伺服器) 和 PHP-FPM (執行 Laravel 應用邏輯)。
+5.  **AWS ElastiCache (Redis Cluster):** AWS 託管的 Redis 服務，實現高可用和數據分片。用於緩存、Session 儲存和隊列管理。
+6.  **AWS RDS MySQL Master Database:** AWS 託管的 MySQL 主資料庫實例，處理所有寫入操作 (INSERT, UPDATE, DELETE)。
+7.  **AWS RDS MySQL Read Replica Database(s):** AWS 託管的一個或多個 MySQL 只讀副本實例，處理大部分讀取操作 (SELECT)。
+8.  **Async Replication (異步複製):** 主資料庫將所有變更異步複製到所有 Read Replica，確保數據最終一致性。
+
+## 高流量交易的請求流程圖 (含 ALB/ELB & Redis 隊列)
+
+```
+1. 用戶發起請求 (瀏覽器/移動應用)
+   |
+   +--- (靜態資源) ---> AWS CloudFront (直接響應)
+   |
+   +--- (動態/API 請求) ---> ALB (Application Load Balancer)
+                               |
+
 
 ## 目錄
 
