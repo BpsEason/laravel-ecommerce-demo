@@ -23,7 +23,7 @@ services:
         # 建議使用 entrypoint.sh 腳本來處理啟動邏輯，更靈活
         # 參考下面的 entrypoint.sh 內容
         entrypoint: ["/var/www/html/entrypoint.sh"] # 指向你的自定義啟動腳本
-        environment:
+        environment: 
             # Laravel 的基本環境設定
             APP_ENV: local
             APP_DEBUG: 'true'
