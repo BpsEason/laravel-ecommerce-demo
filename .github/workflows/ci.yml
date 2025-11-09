@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  laravel-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mysql, pdo_mysql, bcmath, redis
+          ini-values: post_max_size=256M, upload_max_filesize=256M
+          coverage: none # 或者 'xdebug' 如果你需要覆蓋率報告
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Install Dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist
+      - name: Generate Key
+        run: php artisan key:generate
+      - name: Directory Permissions
+        run: chmod -R 777 storage bootstrap/cache
+      - name: Create Database (for sqlite testing)
+        run: touch database/database.sqlite
+      - name: Migrate Database
+        run: php artisan migrate --env=testing --database=sqlite # 在測試環境使用 SQLite
+      - name: Run Tests
+        run: php artisan test
