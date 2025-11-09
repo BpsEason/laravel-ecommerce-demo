@@ -1,5 +1,7 @@
 # laravel-ecommerce-demo
 
+![Laravel Ecommerce Demo](https://via.placeholder.com/1200x400.png?text=Laravel+Ecommerce+Demo)
+
 這是一個基於 Laravel 11 的電商應用程式演示專案，採用 Docker Compose 進行容器化部署。它展示了如何實作資料庫主從分離（讀寫分離）以優化應用程式的擴展性和性能，同時利用 Redis 進行緩存、Session 和隊列管理，並通過 CDN 加速靜態資源的交付。
 
 ## 目錄
@@ -47,40 +49,251 @@
 *   **前端:** HTML, CSS, JavaScript (可能結合 Vue.js/React.js 或 Livewire，待定)
 *   **CI/CD:** GitHub Actions
 
-## 架構概覽
+好的，這就為您提供純文字版本的架構圖和流程圖，可以直接放到 README.md 中。
+
+---
+
+## 完整的生產級架構概覽 (含 ALB/ELB)
 
 ```
 +---------------------+
 |      Client         |
+|  (瀏覽器/移動設備)    |
 +----------+----------+
-           | HTTP(S)
-+----------V----------+
-|      CloudFront     |
-| (Static Assets CDN) |
+           | HTTP(S) 請求
+           | (靜態資源由 CloudFront 處理)
+           V
++---------------------+
+|         ALB         |
+| (Application Load   |
+|     Balancer)       |
 +----------+----------+
-           | HTTP(S)
-+----------V----------+
-|       Nginx         |
-|  (Reverse Proxy,    |
-|   Static Files)     |
+           | HTTP(S) 請求
+           | (負載平衡、自動擴展)
+           V
++---------------------+
+|  Auto Scaling Group |
+| (多個 EC2 實例 /   |
+|   Nginx + PHP-FPM   |
+|    [Laravel App])   |
 +----------+----------+
-           | FastCGI
-+----------V----------+       +-------------------+
-|      PHP-FPM        |<----->|       Redis       |
-| (Laravel Application)|       | (Cache, Session,  |
-+----------+----------+       |      Queue)       |
-           | DB Queries       +-------------------+
-+----------V----------+
+           |
++----------+----------+       +---------------------+
+| Laravel 應用程式邏輯 |<----->|   AWS ElastiCache   |
+| (處理請求, Push/Pop |       |    (Redis Cluster)  |
+|      Queue)         |       | (Cache, Session, Queue)|
++----------+----------+       +---------------------+
+           |
+           V
++---------------------+
 |  Laravel Read/Write |
 |     Splitter        |
+| (config/database.php)|
 +----------+----------+
-   | (Write)    | (Read)
-   V            V
-+--------+   +----------+
-|  MySQL |   |  MySQL   |
-| (Master)|   | (Replica)|
-+--------+   +----------+
+   | (寫入 Write)     | (讀取 Read)
+   V                V
++---------------------+  +-------------------------+
+|  AWS RDS MySQL Master |<-- Async Replication --->|  AWS RDS MySQL Replica(s) |
+|      (主資料庫)       |                          |    (只讀副本資料庫)     |
++---------------------+  +-------------------------+
+
 ```
+
+### 架構圖說明：
+
+1.  **用戶端 (Client):** 透過瀏覽器或移動設備發起請求。
+2.  **AWS CloudFront (靜態資源 CDN):** 接收並響應靜態資源 (JS, CSS, 圖片) 請求，實現全球加速和緩存。
+3.  **ALB (Application Load Balancer):** AWS 應用負載平衡器，作為所有動態請求的入口。它負責將流量分發到後端的多個應用伺服器實例，並與自動擴展組集成。
+4.  **Auto Scaling Group (自動擴展組):** 根據流量負載自動增減 EC2 實例數量，以應對高流量峰值。每個實例運行 Nginx (Web 伺服器) 和 PHP-FPM (執行 Laravel 應用邏輯)。
+5.  **AWS ElastiCache (Redis Cluster):** AWS 託管的 Redis 服務，實現高可用和數據分片。用於緩存、Session 儲存和隊列管理。
+6.  **AWS RDS MySQL Master Database:** AWS 託管的 MySQL 主資料庫實例，處理所有寫入操作 (INSERT, UPDATE, DELETE)。
+7.  **AWS RDS MySQL Read Replica Database(s):** AWS 託管的一個或多個 MySQL 只讀副本實例，處理大部分讀取操作 (SELECT)。
+8.  **Async Replication (異步複製):** 主資料庫將所有變更異步複製到所有 Read Replica，確保數據最終一致性。
+
+---
+
+## 雙 11 高流量交易的請求流程圖 (含 ALB/ELB & Redis 隊列)
+
+```
+1. 用戶發起請求 (瀏覽器/移動應用)
+   |
+   +--- (靜態資源) ---> AWS CloudFront (直接響應)
+   |
+   +--- (動態/API 請求) ---> ALB (Application Load Balancer)
+                               |
+                               | (ALB 根據負載分發請求)
+                               V
+2. ALB 分發請求到 Auto Scaling Group
+   |
+   +--- (ALB 集成 Auto Scaling，根據流量動態增減 Nginx + PHP-FPM 實例)
+   |
+   +---> Nginx 實例 (處理 Web 請求)
+          |
+          +--- (Nginx 將 PHP 請求轉發 FastCGI) ---> PHP-FPM 進程 (執行 Laravel 應用)
+                                                       |
+                                                       V
+3. Laravel 應用程式邏輯處理 (PHP-FPM)
+   |
+   +--- (緩存/Session 讀寫) ---> AWS ElastiCache (Redis Cluster)
+   |        (優先從 Redis 讀取，命中則直接響應)
+   |
+   +--- (高流量交易操作 - e.g., 提交訂單、秒殺)
+   |      |
+   |      +--- (快速推入非同步任務) ---> Redis 隊列 (ElastiCache)
+   |      |                                (作為緩衝區，吸收流量洪峰)
+   |      +--- (即時響應用戶)
+   |
+   V
+4. 後台 Worker 服務處理隊列任務 (獨立的 PHP-FPM 實例，運行 `php artisan queue:work`)
+   |
+   +--- (Worker 從 Redis 隊列中取出任務) ---> Redis 隊列 (ElastiCache)
+   |
+   +--- (Worker 非同步執行交易業務邏輯，含重試機制)
+   |      |
+   |      +--- (執行數據寫入操作) ---> AWS RDS MySQL Master Database
+   |      |
+   |      +--- (執行數據讀取操作) ---> AWS RDS MySQL Read Replica Database(s)
+   |
+   V
+5. 資料庫互動 (AWS RDS MySQL Master & Read Replicas)
+   |
+   +--- (寫入操作集中於 Master DB)
+   |
+   +--- (讀取操作分散於 Read Replica DBs，Laravel `sticky` 連接保障一致性)
+   |
+   +--- (Master DB 通過異步複製同步數據到 Read Replicas)
+   |
+   V
+[交易完成，數據最終一致]
+```
+
+好的，這就為您提供純文字版本的架構圖和流程圖，可以直接放到 README.md 中。
+
+---
+
+## 完整的生產級架構概覽 (含 ALB/ELB)
+
+```
++---------------------+
+|      Client         |
+|  (瀏覽器/移動設備)    |
++----------+----------+
+           | HTTP(S) 請求
+           | (靜態資源由 CloudFront 處理)
+           V
++---------------------+
+|         ALB         |
+| (Application Load   |
+|     Balancer)       |
++----------+----------+
+           | HTTP(S) 請求
+           | (負載平衡、自動擴展)
+           V
++---------------------+
+|  Auto Scaling Group |
+| (多個 EC2 實例 /   |
+|   Nginx + PHP-FPM   |
+|    [Laravel App])   |
++----------+----------+
+           |
++----------+----------+       +---------------------+
+| Laravel 應用程式邏輯 |<----->|   AWS ElastiCache   |
+| (處理請求, Push/Pop |       |    (Redis Cluster)  |
+|      Queue)         |       | (Cache, Session, Queue)|
++----------+----------+       +---------------------+
+           |
+           V
++---------------------+
+|  Laravel Read/Write |
+|     Splitter        |
+| (config/database.php)|
++----------+----------+
+   | (寫入 Write)     | (讀取 Read)
+   V                V
++---------------------+  +-------------------------+
+|  AWS RDS MySQL Master |<-- Async Replication --->|  AWS RDS MySQL Replica(s) |
+|      (主資料庫)       |                          |    (只讀副本資料庫)     |
++---------------------+  +-------------------------+
+
+```
+
+### 架構圖說明：
+
+1.  **用戶端 (Client):** 透過瀏覽器或移動設備發起請求。
+2.  **AWS CloudFront (靜態資源 CDN):** 接收並響應靜態資源 (JS, CSS, 圖片) 請求，實現全球加速和緩存。
+3.  **ALB (Application Load Balancer):** AWS 應用負載平衡器，作為所有動態請求的入口。它負責將流量分發到後端的多個應用伺服器實例，並與自動擴展組集成。
+4.  **Auto Scaling Group (自動擴展組):** 根據流量負載自動增減 EC2 實例數量，以應對高流量峰值。每個實例運行 Nginx (Web 伺服器) 和 PHP-FPM (執行 Laravel 應用邏輯)。
+5.  **AWS ElastiCache (Redis Cluster):** AWS 託管的 Redis 服務，實現高可用和數據分片。用於緩存、Session 儲存和隊列管理。
+6.  **AWS RDS MySQL Master Database:** AWS 託管的 MySQL 主資料庫實例，處理所有寫入操作 (INSERT, UPDATE, DELETE)。
+7.  **AWS RDS MySQL Read Replica Database(s):** AWS 託管的一個或多個 MySQL 只讀副本實例，處理大部分讀取操作 (SELECT)。
+8.  **Async Replication (異步複製):** 主資料庫將所有變更異步複製到所有 Read Replica，確保數據最終一致性。
+
+---
+
+## 雙 11 高流量交易的請求流程圖 (含 ALB/ELB & Redis 隊列)
+
+```
+1. 用戶發起請求 (瀏覽器/移動應用)
+   |
+   +--- (靜態資源) ---> AWS CloudFront (直接響應)
+   |
+   +--- (動態/API 請求) ---> ALB (Application Load Balancer)
+                               |
+                               | (ALB 根據負載分發請求)
+                               V
+2. ALB 分發請求到 Auto Scaling Group
+   |
+   +--- (ALB 集成 Auto Scaling，根據流量動態增減 Nginx + PHP-FPM 實例)
+   |
+   +---> Nginx 實例 (處理 Web 請求)
+          |
+          +--- (Nginx 將 PHP 請求轉發 FastCGI) ---> PHP-FPM 進程 (執行 Laravel 應用)
+                                                       |
+                                                       V
+3. Laravel 應用程式邏輯處理 (PHP-FPM)
+   |
+   +--- (緩存/Session 讀寫) ---> AWS ElastiCache (Redis Cluster)
+   |        (優先從 Redis 讀取，命中則直接響應)
+   |
+   +--- (高流量交易操作 - e.g., 提交訂單、秒殺)
+   |      |
+   |      +--- (快速推入非同步任務) ---> Redis 隊列 (ElastiCache)
+   |      |                                (作為緩衝區，吸收流量洪峰)
+   |      +--- (即時響應用戶)
+   |
+   V
+4. 後台 Worker 服務處理隊列任務 (獨立的 PHP-FPM 實例，運行 `php artisan queue:work`)
+   |
+   +--- (Worker 從 Redis 隊列中取出任務) ---> Redis 隊列 (ElastiCache)
+   |
+   +--- (Worker 非同步執行交易業務邏輯，含重試機制)
+   |      |
+   |      +--- (執行數據寫入操作) ---> AWS RDS MySQL Master Database
+   |      |
+   |      +--- (執行數據讀取操作) ---> AWS RDS MySQL Read Replica Database(s)
+   |
+   V
+5. 資料庫互動 (AWS RDS MySQL Master & Read Replicas)
+   |
+   +--- (寫入操作集中於 Master DB)
+   |
+   +--- (讀取操作分散於 Read Replica DBs，Laravel `sticky` 連接保障一致性)
+   |
+   +--- (Master DB 通過異步複製同步數據到 Read Replicas)
+   |
+   V
+[交易完成，數據最終一致]
+```
+
+架構圖說明：
+用戶端 (Client): 透過瀏覽器或移動設備發起請求。
+AWS CloudFront (靜態資源 CDN): 接收並響應靜態資源 (JS, CSS, 圖片) 請求，實現全球加速和緩存。
+ALB (Application Load Balancer): AWS 應用負載平衡器，作為所有動態請求的入口。它負責將流量分發到後端的多個應用伺服器實例，並與自動擴展組集成。
+Auto Scaling Group (自動擴展組): 根據流量負載自動增減 EC2 實例數量，以應對高流量峰值。每個實例運行 Nginx (Web 伺服器) 和 PHP-FPM (執行 Laravel 應用邏輯)。
+AWS ElastiCache (Redis Cluster): AWS 託管的 Redis 服務，實現高可用和數據分片。用於緩存、Session 儲存和隊列管理。
+AWS RDS MySQL Master Database: AWS 託管的 MySQL 主資料庫實例，處理所有寫入操作 (INSERT, UPDATE, DELETE)。
+AWS RDS MySQL Read Replica Database(s): AWS 託管的一個或多個 MySQL 只讀副本實例，處理大部分讀取操作 (SELECT)。
+Async Replication (異步複製): 主資料庫將所有變更異步複製到所有 Read Replica，確保數據最終一致性。
 
 ## 快速開始
 
